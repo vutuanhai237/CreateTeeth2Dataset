@@ -96,6 +96,7 @@ def distance(p1, p2):
     return acos
 def findTeethColor(pixelMayBeTeeths, teethShades):
     minShade = teethShades[0]
+    minMayBeTeeth = pixelMayBeTeeths[0]
     minDist = distance(pixelMayBeTeeths[0], teethShades[0].getColor())
     for teethColor in pixelMayBeTeeths:
         for shade in teethShades:
@@ -103,6 +104,7 @@ def findTeethColor(pixelMayBeTeeths, teethShades):
             if dist - minDist < 0:
                 minShade = shade
                 minDist = dist
+                minMayBeTeeth = teethColor
     return minShade
 def calculateThreshhold(image, color):
     distances = []
@@ -172,7 +174,14 @@ def createFacial(image):
         out = np.concatenate((clone_image, ground_truth), axis=1)
         # print(f"Teeth color {teethColor}")
         return out
-
+def make_directory_if_not_exists(path):
+    while not os.path.isdir(path):
+        try:
+            os.makedirs(path)
+            break    
+        except WindowsError:
+            print("got WindowsError")
+            pass       
 def main():
     path = "C:/Users/haime/Downloads/test"
     shutil.rmtree(path + "/result", ignore_errors=True)
