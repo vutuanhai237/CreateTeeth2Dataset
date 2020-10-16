@@ -32,20 +32,9 @@ class Shape:
     def getColor(self):
         return [int(self.r), int(self.g), int(self.b)]
 
-ap = argparse.ArgumentParser()
-ap.add_argument(
-    "-p",
-    "--shape-predictor",
-    required=False,
-    default="shape_predictor_68_face_landmarks.dat",
-    help="path to facial landmark predictor",
-)
-# ap.add_argument("-i", "--image", required=True, help="path to input image")
-args = vars(ap.parse_args())
 detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor(args["shape_predictor"])
-# image = cv2.imread(args["image"])
-# clone_image = copy.copy(image)
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
 def getFacial(image):
     
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -80,19 +69,9 @@ def readTeethShade():
         outString.append(Shape(line[0], line[1], line[2], line[3]))
     return outString
 def distance(p1, p2):
-    """
-    ss
-    """
-    # p1hsv = colorsys.rgb_to_hsv(p1[0], p1[1], p1[2])
-    # p2hsv = colorsys.rgb_to_hsv(p2[0], p2[1], p2[2])
-
-    # dist = (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2
     upperCos = p1[0]*p2[0] + p1[1] * p2[1] + p1[2]*p2[2]
-    lowerCos = (p1[0]**2+p1[1]**2+p1[2]**2)**(1/2) * (p2[0]**2+p2[1]**2+p2[2]**2)**(1/2)
-
-    
+    lowerCos = (p1[0]**2+p1[1]**2+p1[2]**2)**(1/2) * (p2[0]**2+p2[1]**2+p2[2]**2)**(1/2)  
     acos = math.acos((upperCos/lowerCos))*180/math.pi
-    
     return acos
 def findTeethColor(pixelMayBeTeeths, teethShades):
     minShade = teethShades[0]
@@ -105,6 +84,7 @@ def findTeethColor(pixelMayBeTeeths, teethShades):
                 minShade = shade
                 minDist = dist
                 minMayBeTeeth = teethColor
+    print(minShade)
     return minShade
 def calculateThreshhold(image, color):
     distances = []
@@ -121,7 +101,7 @@ def isTeethColor(pixel, teethColor, threshold):
     """
     # if distance(pixel, teethColor) < 50 and (pixel[0] - teethColor[0] < 30) and (pixel[1] - teethColor[1] < 30) and (pixel[2] - teethColor[2] < 30):
     #     return True
-    if CIEDE2000(pixel, teethColor) < 20:
+    if CIEDE2000(pixel, teethColor) < 10:
         return True
     
     return False
@@ -154,26 +134,41 @@ def reInpainting(image, ground_truth, teethColor):
     return ground_truth
 
 def createFacial(image):
-    shape = getFacial(image) # points of mouth
-    if shape is None:
-        return None
-    else:
-        [topLeft, botRight] = convexRectangle(shape) # 2 point for crop mouth
-        image = image[topLeft[1] : botRight[1] + 1, topLeft[0] : botRight[0] + 1] # mouth
-        shape = shiftShapeAfterCrop(shape, topLeft) # new point of mouth after crop
-        ground_truth = copy.copy(image)
-        clone_image = copy.copy(image)
-        pixelMayBeTeeths = getListPixelMayBeTeeth(image) # color on +
-        teethShades = readTeethShade() # list of teeth shade
-        teethColor = findTeethColor(pixelMayBeTeeths,teethShades).getColor() # color of teeth
-        image = convexHull(image, shape)
-        ground_truth = reInpainting(image, ground_truth, teethColor)
-        clone_image = cv2.resize(clone_image, (256,256), interpolation = cv2.INTER_CUBIC )
-        ground_truth = cv2.resize(ground_truth, (256,256), interpolation = cv2.INTER_CUBIC )
-        image = cv2.resize(image, (256,256), interpolation = cv2.INTER_AREA)
-        out = np.concatenate((clone_image, ground_truth), axis=1)
-        # print(f"Teeth color {teethColor}")
-        return out
+    try:
+        shape = getFacial(image) # points of mouth
+        if shape is None:
+            return None
+        else:
+            [topLeft, botRight] = convexRectangle(shape) # 2 point for crop mouth
+            needed_image = copy.copy(image)
+            if topLeft[1] - botRight[1] > topLeft[0] - botRight[0]:
+                deltaXY = abs(abs(topLeft[1] - botRight[1]) - abs(topLeft[0] - botRight[0]))
+                newTopLeft = [topLeft[0], topLeft[1] - int(deltaXY/2)]
+                newBotRight = [botRight[0], botRight[1] + int(deltaXY/2)]
+                upper_needed_image = needed_image[newTopLeft[1] : topLeft[1] + 1, newTopLeft[0] : botRight[0] + 1]
+                bottom_needed_image = needed_image[botRight[1] : newBotRight[1] + 1, newTopLeft[0] : botRight[0] + 1]
+                needed_image = needed_image[newTopLeft[1] : newBotRight[1] + 1, newTopLeft[0] : newBotRight[0] + 1]
+            image = image[topLeft[1] : botRight[1] + 1, topLeft[0] : botRight[0] + 1] # mouth
+            shape = shiftShapeAfterCrop(shape, topLeft) # new point of mouth after crop
+            ground_truth = copy.copy(image)
+            clone_image = copy.copy(image)
+            pixelMayBeTeeths = getListPixelMayBeTeeth(image) # color on +
+            teethShades = readTeethShade() # list of teeth shade
+            teethColor = findTeethColor(pixelMayBeTeeths,teethShades).getColor() # color of teeth
+            image = convexHull(image, shape)
+            ground_truth = reInpainting(image, ground_truth, teethColor)
+            # clone_image = cv2.resize(clone_image, (256,256), interpolation = cv2.INTER_CUBIC )
+            # ground_truth = cv2.resize(ground_truth, (256,256), interpolation = cv2.INTER_CUBIC )
+            image = cv2.resize(image, (256,256), interpolation = cv2.INTER_CUBIC)
+
+            res = np.concatenate((upper_needed_image, ground_truth, bottom_needed_image), axis=0)  
+            res = cv2.resize(res, (256,256), interpolation = cv2.INTER_CUBIC )
+            needed_image = cv2.resize(needed_image, (256,256), interpolation = cv2.INTER_CUBIC )
+            out = np.concatenate((needed_image, res), axis=1)
+            # print(f"Teeth color {teethColor}")
+            return out
+    except:
+        return
 def make_directory_if_not_exists(path):
     while not os.path.isdir(path):
         try:
@@ -187,7 +182,6 @@ def main():
     shutil.rmtree(path + "/result", ignore_errors=True)
     os.mkdir(path + "/result")
     files = [file for file in os.listdir(path) if os.path.isfile(os.path.join(path, file))]
-    i = 0
     for i in progressbar(range(len(files)), "Computing: ", 10):
         file = files[i]
         filename = file.split(".")
