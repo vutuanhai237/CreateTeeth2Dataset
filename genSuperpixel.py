@@ -6,44 +6,60 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import math
 import functools
-from createTeeth2Dataset import isTeethColor
-# const
-I = None
-I_dummy = None
-l_range = [0, 256]
-a_range = [0, 256]
-b_range = [0, 256]
-lab_bins = [32, 32, 32]
+from genTeethColor import isTeethColor, findTeethColor, readTeethShade
+import collections 
 
-# class
 class Superpixel():
     def __init__(self):
         self.name = ''
         self.pixels = []
         self.id = None
+        self.meanDensity = None
+        self.replaceColor = None
+
+    def setReplaceColor(self, replaceColor):
+        self.replaceColor = replaceColor
+    def getReplaceColor(self):
+        return self.replaceColor
+
+    def setMeanDensity(self, meanDensity):
+        self.meanDensity = meanDensity
 
     def setID(self, id):
         self.id = id
 
-    def getID(self, id):
+    def getID(self):
         return self.id
 
     def addPixel(self, pixel):
         self.pixels.append(pixel)
+
+    def getPixel(self):
+        return self.pixels
 
     def setName(self, name):
         self.name = name
 
     def getName(self):
         return self.name
-    def getMeanDensity(self): 
-        return [int(round(sum(pixel)/len(self.pixels))) for pixel in zip(*self.pixels)]
 
+    def getMeanDensity(self):
+        if self.meanDensity is not None:
+            return self.meanDensity
+        result = [0, 0, 0]
+        for pixel in self.pixels:
+            result[0] = result[0] + pixel[0][0]
+            result[1] = result[1] + pixel[0][1]
+            result[2] = result[2] + pixel[0][2]
+        result[0] = round(result[0] / len(self.pixels))
+        result[1] = round(result[1] / len(self.pixels))
+        result[2] = round(result[2] / len(self.pixels))
+        return result
     def getNumberOfPixels(self):
         return len(self.pixels)
 
-
-
+    def __str__(self):
+        return f"Name: {self.name}, ID: {self.id}, numOfPixel: {len(self.pixels)}"
 
 
 def genSuperpixelSEED(image):
@@ -64,7 +80,7 @@ def getSuperpixels(image, labels, numberOfSuperpixelResult):
         superpixels.append(newSuperpixel)
     for i in range(0, labels.shape[0]):
         for j in range(0, labels.shape[1]):
-            superpixels[labels[i][j]].addPixel(image[i][j])
+            superpixels[labels[i][j]].addPixel((image[i][j], i, j))
     return superpixels
 
 
@@ -88,40 +104,46 @@ def genSuperpixelLSC(image, regionSize):
     return slcs
 
 
-def preprocessing(image, seeds, teethColor):
+def preProcessing(image, teethColor):
+    seeds = genSuperpixelSEED(image)
     numberOfSuperpixelResult = seeds.getNumberOfSuperpixels()
     labels = seeds.getLabels()
     superpixels = getSuperpixels(image, labels, numberOfSuperpixelResult)
-    
-    # 1M2: RGB 221, 212, 180
-    
-    isTeeth = 0
     for superpixel in superpixels:
         density = superpixel.getMeanDensity()
         if isTeethColor([density[2], density[1], density[0]], teethColor, 20):
             superpixel.setName("teeth")
-            isTeeth = isTeeth + 1
         else:
             superpixel.setName("notTeeth")
-    print(f"isTeeth: {isTeeth}")
 
+    getColorNeighboor(image, superpixels, labels, numberOfSuperpixelResult)
     for i in range(0, labels.shape[0]):
         for j in range(0, labels.shape[1]):
             if superpixels[labels[i][j]].getName() == "notTeeth":
-                image[i][j] = [teethColor[2], teethColor[1], teethColor[0]]
-    
+                replaceColor = superpixels[labels[i][j]].getReplaceColor()
+                image[i][j] = [replaceColor[2], replaceColor[1], replaceColor[0]]     
     return image
 
 
-
-
-if __name__ == "__main__":
-    image = cv2.imread("images/braces.png")
-    imageLAB = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    teethColor = [221, 212, 180]
-    seeds = genSuperpixelSEED(image)
-    slics = genSuperpixelSLIC(image, 10)
-    lscs = genSuperpixelLSC(image, 10)
-    print(image.shape)
-    cv2.imshow("a", preprocessing(image, seeds))
-    cv2.waitKey()
+def getColorNeighboor(image, superpixels, labels, numberOfSuperpixelResult):
+    for i in range(0, numberOfSuperpixelResult):
+        if superpixels[i].getName() == "notTeeth":
+            findTeethColorForSuperpixel(image, labels, superpixels, i)
+    
+            
+def findTeethColorForSuperpixel(image, labels, superpixels, id):
+    pixels = superpixels[id].getPixel()
+    pixelsX = []
+    pixelsY = []
+    for pixel in pixels:
+        pixelsX.append(pixel[1])
+        pixelsY.append(pixel[2])
+    topLeft = (min(pixelsX), min(pixelsY))
+    botRight = (max(pixelsX), max(pixelsY))
+    pixelMayBeTeeths = []
+    for i in range(topLeft[0], botRight[0]):
+        for j in range(topLeft[1], botRight[1]):
+            if superpixels[labels[i][j]].getName() == "notTeeth":
+                pixelMayBeTeeths.append(image[i][j])
+    teethShades = readTeethShade()
+    superpixels[id].setReplaceColor(findTeethColor(pixelMayBeTeeths, teethShades).getColor())
